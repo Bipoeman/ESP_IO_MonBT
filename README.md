@@ -5,8 +5,8 @@
 ## ESP32 Code Edit
 การแก้ไขโค้ดแก้ได้ตามนี้นะครับ <br><br>
 ในส่วนของ ESP32 อันนี้คือท่อนแรกของโค้ดนะครับ
-BluetoothSerial ESP32BT;
 ```cpp
+BluetoothSerial ESP32BT;
 #define LED 2
 #define bluetoothName "ESP32_MyLED"
 #define NUM_PINS 13
