@@ -18,7 +18,7 @@ static unsigned char wifiIcon[] = {
 #define WiFiPassword "monitor"
 #define NUM_PINS 13
 int pin[NUM_PINS] = { 26, 25, 17, 16, 27, 14, 12, 13, 5, 23, 19, 18, 4 };
-int connectionStatus;
+int publicConnectionStatus;
 
 #define WIFI_STA_NAME "ESP Wifi IO Checker"
 #define WIFI_STA_PASS ""
@@ -33,6 +33,12 @@ void setup() {
   WiFi.softAP(WiFiName, WiFiPassword);
 
   Serial.println("");
+  WiFi.onEvent(WiFiEvent);
+  WiFiEventId_t eventID = WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+    Serial.print("WiFi lost connection. Reason: ");
+    Serial.println(info.wifi_sta_disconnected.reason);
+  },
+                                       WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   IPAddress IP = WiFi.softAPIP();
   Serial.print("AP IP address: ");
   Serial.println(IP);
@@ -52,7 +58,8 @@ void loop() {
 
   if (client) {
     Serial.println("new client");
-    while (client.connected()) {
+    publicConnectionStatus = 1;
+    while (client.connected() && publicConnectionStatus) {
       digitalWrite(LED, HIGH);
       String data = "";
       updateDisplay(1);
@@ -97,4 +104,34 @@ void updateDisplay(int connectionStatus) {
     }
 
   } while (display.nextPage());
+}
+
+void WiFiEvent(WiFiEvent_t event) {
+  Serial.printf("[WiFi-event] event: %d\n", event);
+  switch (event) {
+    case ARDUINO_EVENT_WIFI_AP_START:
+      Serial.println("WiFi access point started");
+      break;
+    case ARDUINO_EVENT_WIFI_AP_STOP:
+      Serial.println("WiFi access point  stopped");
+      break;
+    case ARDUINO_EVENT_WIFI_AP_STACONNECTED:
+      Serial.println("Client connected");
+      break;
+    case ARDUINO_EVENT_WIFI_AP_STADISCONNECTED:
+      Serial.println("Client disconnected");
+      updateDisplay(0);
+      publicConnectionStatus = 0;
+      break;
+    case ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED:
+      Serial.println("Assigned IP address to client");
+      break;
+    case ARDUINO_EVENT_WIFI_AP_PROBEREQRECVED:
+      Serial.println("Received probe request");
+      break;
+    case ARDUINO_EVENT_WIFI_AP_GOT_IP6:
+      Serial.println("AP IPv6 is preferred");
+      break;
+    default: break;
+  }
 }
