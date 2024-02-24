@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <Wire.h>
 #include <U8g2lib.h>
+#include <SPI.h>
 
 U8G2_SSD1306_128X64_NONAME_1_SW_I2C display(U8G2_R0, /* clock=*/22, /* data=*/21, /* reset=*/U8X8_PIN_NONE);
 
@@ -16,12 +17,17 @@ static unsigned char wifiIcon[] = {
 #define LED 2
 #define WiFiName "ESP Wifi IO Checker"
 #define WiFiPassword "monitor"
-#define NUM_PINS 13
-int pin[NUM_PINS] = { 26, 25, 17, 16, 27, 14, 12, 13, 5, 23, 19, 18, 4 };
+#define NUM_PINS 10
+int pin[NUM_PINS] = { 26, 25, 17, 16, 27, 14, 12, 13, 23, 4 };
+// int pin[NUM_PINS] = { 26, 25, 17, 16, 27, 14, 12, 13, 5, 23, 19, 18, 4 };
 int publicConnectionStatus;
 
 #define WIFI_STA_NAME "ESP Wifi IO Checker"
 #define WIFI_STA_PASS ""
+
+#define MAX6675_MISO 19
+#define MAX6675_SCK 18
+#define MAX6675_CS 5
 
 WiFiServer server(3000);
 
@@ -44,25 +50,28 @@ void setup() {
   Serial.println(IP);
   Serial.println("WiFi Initialized");
   server.begin();
+
+  display.begin();
+  Serial.println("Pin configured");
+
+  pinMode(MAX6675_CS, OUTPUT);
+  updateDisplay(0,readTemperature());
+  SPI.begin(MAX6675_SCK, MAX6675_MISO, -1, MAX6675_CS);
   pinMode(LED, OUTPUT);
   for (int i = 0; i < NUM_PINS; i++) {
     pinMode(pin[i], INPUT_PULLUP);
   }
-  display.begin();
-  updateDisplay(0);
-  Serial.println("Pin configured");
 }
 
 void loop() {
   WiFiClient client = server.available();
-
   if (client) {
     Serial.println("new client");
     publicConnectionStatus = 1;
     while (client.connected() && publicConnectionStatus) {
       digitalWrite(LED, HIGH);
       String data = "";
-      updateDisplay(1);
+      updateDisplay(1,readTemperature());
       vTaskDelay(400);
       for (int i = 0; i < NUM_PINS; i++) {
         data += String(digitalRead(pin[i]));
@@ -70,6 +79,8 @@ void loop() {
           data += ":";
         }
       }
+      data += ",";
+      data += String(readTemperature());
       client.println(data);
       // if (client.available()) {
       //   char c = client.read();
@@ -80,12 +91,29 @@ void loop() {
     digitalWrite(LED, 0);
     client.stop();
     Serial.println("client disonnected");
-    updateDisplay(0);
   }
-  delay(10);
+  updateDisplay(0,readTemperature());
+  vTaskDelay(400);
+
 }
 
-void updateDisplay(int connectionStatus) {
+float readTemperature() {
+  SPI.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE0));
+  digitalWrite(MAX6675_CS, LOW);
+  unsigned int returnVal = SPI.transfer(0x00) << 8;
+  returnVal |= SPI.transfer(0x00);
+  digitalWrite(MAX6675_CS, HIGH);
+  SPI.endTransaction();
+  int sensorOpen = (returnVal >> 2) & 1;
+  if (sensorOpen) {
+    Serial.print("Sensor Open");
+    return -1.0;
+  } else {
+    return (returnVal >> 3) / 4.0;
+  }
+}
+
+void updateDisplay(int connectionStatus,float temp) {
   display.clearBuffer();
   display.setFlipMode(1);
   display.setFont(u8g2_font_bauhaus2015_tr);
@@ -94,15 +122,26 @@ void updateDisplay(int connectionStatus) {
   do {
     display.setCursor(7, 0);
     display.print(F("WiFi IO Monitor"));
-    display.drawBitmap(50, 20, 3, 24, wifiIcon);
+    int tempLogoStartX = 10;
+    int tempLogoStartY = 20;
+    display.drawBitmap(tempLogoStartX, tempLogoStartY, 3, 24, wifiIcon);
     if (connectionStatus == 1) {
-      display.setCursor(25, 50);
+      display.setCursor(40, 26);
       display.print("Connected");
     } else {
-      display.setCursor(12, 50);
-      display.print("Not Connected");
+      display.drawLine(tempLogoStartX - 1,tempLogoStartY + 24 + 1 + 1,tempLogoStartX + 24 + 1,tempLogoStartY - 1 + 1);
+      display.drawLine(tempLogoStartX - 1,tempLogoStartY + 24 + 1,tempLogoStartX + 24 + 1,tempLogoStartY - 1);
+      display.drawLine(tempLogoStartX - 1,tempLogoStartY + 24 + 1 - 1,tempLogoStartX + 24 + 1,tempLogoStartY - 1 - 1);
+      display.setCursor(65, 20);
+      display.print("Not");
+      display.setCursor(40, 33);
+      display.print("Connected");
+      // display.drawLine(8,18,24+8+2,24+18+2);
+      // display.setCursor(12, 50);
+      // display.print("Not Connected");
     }
-
+    display.setCursor(10, 50);
+    display.print("Temp : "+String(temp)+"°C");
   } while (display.nextPage());
 }
 
@@ -120,7 +159,7 @@ void WiFiEvent(WiFiEvent_t event) {
       break;
     case ARDUINO_EVENT_WIFI_AP_STADISCONNECTED:
       Serial.println("Client disconnected");
-      updateDisplay(0);
+      updateDisplay(0,readTemperature());
       publicConnectionStatus = 0;
       break;
     case ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED:
